@@ -2,6 +2,7 @@ import argparse
 import subprocess
 import sys
 import time
+import os
 
 class MakrukCLI:
     def __init__(self, skill_level=15):
@@ -13,9 +14,10 @@ class MakrukCLI:
     
     def initialize_engine(self):
         skill_level = self.skill_level
+        engine_path = os.path.expanduser("~/Senior_project/AI-Makruk-Board/src/engine/stockfish")
         try:
             self.engine = subprocess.Popen(
-                ["/home/phongsakorn/Senior_project/AI-Makruk-Board/src/engine/stockfish"],  # ปรับเส้นทางตามที่คุณติดตั้ง stockfish
+                [engine_path], 
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
