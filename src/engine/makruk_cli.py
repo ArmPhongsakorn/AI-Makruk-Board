@@ -15,7 +15,7 @@ class MakrukCLI:
         skill_level = self.skill_level
         try:
             self.engine = subprocess.Popen(
-                ["/usr/local/bin/stockfish"],  # ปรับเส้นทางตามที่คุณติดตั้ง stockfish
+                ["/home/phongsakorn/Senior_project/AI-Makruk-Board/src/engine/stockfish"],  # ปรับเส้นทางตามที่คุณติดตั้ง stockfish
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
