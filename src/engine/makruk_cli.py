@@ -14,7 +14,7 @@ class MakrukCLI:
     
     def initialize_engine(self):
         skill_level = self.skill_level
-        engine_path = os.path.expanduser("~/Senior_project/AI-Makruk-Board/src/engine/stockfish")
+        engine_path = os.path.expanduser("~/AI-Makruk-Board/src/engine/stockfish")
         try:
             self.engine = subprocess.Popen(
                 [engine_path], 
