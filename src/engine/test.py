@@ -218,6 +218,16 @@ def read_fen_from_esp():
 
         return raw_data
 
+def  get_turn_info(fullMove_count):
+    if fullMove_count % 2 == 0:
+        player_turn = 'w' 
+    else:
+        player_turn = 'b' 
+
+    half_move = 0 
+    
+    return player_turn, half_move
+
 def get_fen():
     data_from_esp = read_fen_from_esp() # raw data of position
     raw_to_array = change_raw_data_to_array(data_from_esp) # raw data to arry 4 row
@@ -283,6 +293,13 @@ def get_best_move_from_engine(fen_with_skill: str) -> str:
 
     except Exception as e:
         return f"Error: {e}"
+    
+def is_undo_button_pressed():
+    # ????????? GPIO Pin 17 ???????? undo
+    import RPi.GPIO as GPIO
+    GPIO.setmode(GPIO.BCM)
+    GPIO.setup(17, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+    return GPIO.input(17) == GPIO.LOW  # ?????????
 
 def fen_to_board(fen):
     rows = fen.split()[0].split('/')
@@ -316,6 +333,7 @@ def board_to_fen(board_state):
     return '/'.join(fen_rows)
 
 def algebraic_to_index(move):
+    # files = 'hgfedcba'
     files = 'abcdefgh'
     return (8 - int(move[1]), files.index(move[0]))
 
@@ -482,6 +500,75 @@ def detect_move(prev_board, curr_board):
 
     return source, destination
 
+
+# def detect_move(prev_board, curr_board):
+#     print(f"DEBUG Prev board: {prev_board}, Curr board: {curr_board}")
+#     source = None
+#     destination = None
+    
+#     # 1. find source first
+#     for i in range(8):
+#         for j in range(8):
+#             prev_piece = prev_board[i][j]
+#             curr_piece = curr_board[i][j]
+            
+#             if prev_piece != curr_piece:
+#                 if prev_piece is not None and curr_piece is None:
+#                     source = (i, j)
+#                 elif curr_piece is not None and (prev_piece is None or prev_piece != curr_piece):
+#                     destination = (i, j)
+
+#     # 2. if not get destination wait for 8 second to decide to eat
+#     count_to_capture = 0
+
+#     while destination is None:
+#         count_to_capture += 1
+#         msg = f"have {10 - count_to_capture} sec to eat"
+#         print(msg)
+#         send_message(msg)
+#         time.sleep(1)
+
+#         if count_to_capture < 8:
+#             continue  # still waiting
+#         elif count_to_capture == 8:
+#             send_message("WantToEatLiftUpTheTarget")
+
+#         # after 8 sec begin to detect temp board
+#         temp_current_board, fen_current = get_current_board_and_fen()
+
+#         if temp_current_board != curr_board:  # lift up the target
+#             time_put_down = 0
+#             for i in range(8):
+#                 for j in range(8):
+#                     curr_piece = temp_current_board[i][j]
+#                     prev_piece = curr_board[i][j]
+
+#                     if prev_piece != curr_piece:
+#                         if prev_piece is not None and curr_piece is None:
+#                             destination = (i, j)
+#                             break
+                
+#                 if destination is not None:
+#                     while(True):
+#                         time_put_down += 1
+#                         time.sleep(1)
+#                         if time_put_down <= 10:
+#                             send_message("PutDownPieceReplaceOnTarget")
+#                         else:
+#                             break
+#                     break
+#         else:
+#             if count_to_capture >= 30:
+#                 send_message("Timeout: Restart detection")
+#                 count_to_capture = 0  # reset
+
+
+#     print(f"Source: {source}, Destination: {destination}")
+#     if source is None or destination is None:
+#         raise ValueError(f"Cannot detect valid move on board. Source: {source}, Destination: {destination}")
+
+#     return source, destination
+
 def find_piece_moved(prev_board, curr_board, moved_piece):
     for i in range(8):
         for j in range(8):
@@ -497,6 +584,7 @@ def update_board_state(board, source, destination):
 
 def square_to_coords(square):
     file_to_col = {'a': 0, 'b': 1, 'c': 2, 'd': 3,'e': 4, 'f': 5, 'g': 6, 'h': 7}
+    # file_to_col = {'h': 0, 'g': 1, 'f': 2, 'e': 3,'d': 4, 'c': 5, 'b': 6, 'a': 7}
     col = file_to_col[square[0]]
     row = 8 - int(square[1])  # On the top of row (8) be index 0
     return row, col
@@ -532,8 +620,8 @@ def wait_for_fen_match(fen_update, board_state, bestmove):
     # Convert board to FEN
     fen_from_sensor = update_board_to_fen(updated_board)
 
-    # print(f"[DEBUG] Current FEN: {fen_from_sensor}")
-    # print(f"[DEBUG] Expected FEN: {fen_update}")
+    print(f"[DEBUG] Current FEN: {fen_from_sensor}")
+    print(f"[DEBUG] Expected FEN: {fen_update}")
 
     while(True):
         if fen_from_sensor == fen_update:
@@ -651,7 +739,7 @@ def read_line_from_serial():
 
 def is_king_missing(fen: str) -> bool:
     board_part = fen.split(" ")[0]
-    # print(f"board_part334534 : {board_part}")
+    print(f"board_part334534 : {board_part}")
     return 'k' not in board_part or 'K' not in board_part
 
 def main():
@@ -735,6 +823,75 @@ def main():
                     send_message("new game")
                     state = 0
                     break
+
+                temp_fen = fen_prefix
+
+                # fen_current = get_fen()
+                # print(f"fen current: {fen_current} fen previous: {temp_fen}")
+                # if temp_fen.strip().split(" ")[0] == fen_current.strip().split(" ")[0]: # The player not move yet.
+                #     print("Please Move!")
+                #     continue
+                # elif (fen_current != temp_fen):  
+                #     print("White moved.")
+                #     player_turn_count_fullMove += 1 # white move +1
+                #     # Save the status before changing to a new status.
+                #     sensor_data = get_sensor_data()
+                #     current_board = sensor_to_board(sensor_data)
+                #     print(f"Curr Board: {current_board}")
+                #     fen_current = board_to_fen(current_board)
+
+                #     fen_previous = fen_current  
+                #     # Detect move and update board for white player
+                #     source, destination = detect_move(previous_board, current_board)
+                #     board_state = update_board_state(previous_board, source, destination)
+                #     previous_board = [row.copy() for row in board_state] # update last board state
+                #     fen_prefix = board_to_fen(board_state)
+
+                #     player_turn, player_trun_count_halfMove = get_turn_info(player_turn_count_fullMove)
+                #     fen_suffix = f"{player_turn} - - {player_trun_count_halfMove} {player_turn_count_fullMove}"
+                #     fen = f"{fen_prefix} {fen_suffix}"
+
+                #     if player_turn == "b": # The black player is AI engine so the program will sent fen only black turn
+                #         best_move = get_best_move_from_engine(fen)                       
+
+                #     while(True):
+                #         if check_engine_move(board_state, best_move):
+                #             print("True")
+                #             print(f"Besssst move: {best_move}")
+                #             break
+                #         elif (check_engine_move(board_state, best_move)) == False:
+                #             best_move = get_best_move_from_engine(fen)
+                #             print("Finding new bestmove")
+                #             print(f"Besssst move: {best_move}")
+                #             time.sleep(1)
+                    
+                #     fen_update = update_fen(fen_prefix, best_move)
+                #     print(f"Fen update: {fen_update}")
+                #     board_state = wait_for_fen_match(fen_update) # If player move correctly
+                #     previous_board = [row.copy() for row in board_state] # update last board state
+                #         # fen_prefix = Current FEN before move
+                #         # best_move = Engine suggested move
+                #         # fen_update = New FEN if best_move was moved
+                #         # fen_from_sensor = Current FEN obtained from sensor
+                #         # new_board_state = Last board state after player made a correct move
+                #     print("Black moved.")
+                #     player_turn_count_fullMove += 1 # Black move +1
+                #     fen_current = update_board_to_fen(board_state)
+
+                #     fen_previous = fen_current  
+                #     temp_fen = fen_previous
+                    
+
+                # Check if undo button is pressed
+                if is_undo_button_pressed():
+                    if fen_previous:
+                        print("Undo pressed. Reverting to previous move.")
+                        fen_current = fen_previous
+                        fen_previous = None 
+                        player_turn_count_fullMove -= 1
+                        continue
+                    else:
+                        print("No previous move to undo.")
 
 if __name__ == "__main__":
     try:
