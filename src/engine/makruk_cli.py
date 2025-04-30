@@ -12,12 +12,16 @@ print("[DEBUG] User:", os.getlogin())
 GREE_BUTTON_PIN = 23 # for start the game
 GPIO.setmode(GPIO.BCM)
 GPIO.setup(GREE_BUTTON_PIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+
 BLUE_BUTTON_PIN = 22
 GPIO.setmode(GPIO.BCM)
 GPIO.setup(BLUE_BUTTON_PIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)
 
+RED_BUTTON_PIN = 17
+GPIO.setmode(GPIO.BCM)
+GPIO.setup(RED_BUTTON_PIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+
 esp_ports = ["/dev/ttyUSB0", "/dev/ttyUSB1", "/dev/ttyUSB2", "/dev/ttyUSB3"]
-# esp_ports = ["/dev/ttyUSB3", "/dev/ttyUSB2", "/dev/ttyUSB1", "/dev/ttyUSB0"]
 
 baud_rate = 115200
 ser_list = [serial.Serial(port, baud_rate, timeout=1) for port in esp_ports]
@@ -493,6 +497,14 @@ def update_board_state(board, source, destination):
     piece = board[source[0]][source[1]]
     board[destination[0]][destination[1]] = piece
     board[source[0]][source[1]] = None
+
+        # --- Handle promotion ---
+    dest_row = destination[0]
+
+    if piece == 'p' and dest_row == 2:  # p move to row 3 rd (index 2)
+        board[dest_row][destination[1]] = 'm'  # promoted
+    elif piece == 'P' and dest_row == 5:  # P move to row 6 th (index 5)
+        board[dest_row][destination[1]] = 'M'  # promoted
     return board
 
 def square_to_coords(square):
@@ -715,6 +727,29 @@ def main():
                 updated_board, fen_prefix = handle_player_move(previous_board)
                 previous_board = updated_board
 
+                #----------------- undo process ---------------------------
+                # previous_board_before_move = previous_board.copy()
+                
+                # updated_board, fen_prefix = handle_player_move(previous_board)
+
+                # while True:
+                #     count_undo = 0
+
+                #     # Check the undo button within 10 seconds.
+                #     while count_undo <= 10:
+                #         if GPIO.input(RED_BUTTON_PIN) == GPIO.LOW:
+                #             send_message("You pressed undo button. Undoing move.")
+                #             previous_board = previous_board_before_move.copy()
+                #             break  # confirm to undo
+                #         else:
+                #             count_undo += 1
+                #             send_message(f"you have {10 - count_undo} to undo")
+                #             continue
+
+                #     previous_board = updated_board
+                #     break
+                #-------------------------------------------------------------
+
                 if is_king_missing(fen_prefix): # check king's white 
                     print("game over!")
                     send_message("game over!")
@@ -724,7 +759,12 @@ def main():
                     break
 
                 # --- Handle engine move (Black) ---
-                updated_board, fen_current = handle_engine_move(fen_prefix, previous_board, player_turn_count_fullMove, player_turn_count_halfMove, engine_level)
+                updated_board, fen_current = handle_engine_move(
+                    fen_prefix, previous_board, 
+                    player_turn_count_fullMove, 
+                    player_turn_count_halfMove, 
+                    engine_level
+                    )
                 player_turn_count_fullMove += 1
                 previous_board = updated_board
 
