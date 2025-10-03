@@ -3,6 +3,7 @@ import time
 import subprocess
 import os
 import RPi.GPIO as GPIO
+import copy
 
 print("[DEBUG] CWD:", os.getcwd())
 print("[DEBUG] User:", os.getlogin())
@@ -29,6 +30,7 @@ ser_list = [serial.Serial(port, baud_rate, timeout=1) for port in esp_ports]
 # open esp32 port
 ser = serial.Serial('/dev/ttyUSB3', 115200, timeout=1)
 time.sleep(2) # wait for esp32
+
 
 def send_message(message):
     # Add text in final line
@@ -88,7 +90,7 @@ def sensor_to_board(sensor_data, board_state):
                 src_i, src_j, piece = moved_from.pop(0)  # Use the first piece that was moved.
                 current_board[dest_i][dest_j] = piece  # Move the piece to its destination position.
     
-    print(f"current_board549854: {current_board}")
+    # print(f"current_board549854: {current_board}")
     return current_board
 
 def sensor_to_fen(sensor_data):
@@ -207,7 +209,7 @@ def read_fen_from_esp():
             try:
                 ser.reset_input_buffer()               
                 ser.write(b'R') # Sent R to all esp32 to start to sent data to raspi                        
-                time.sleep(0.5)                       
+                time.sleep(0.2)                       
 
                 if ser.in_waiting > 0:
                     line = ser.readline().decode('utf-8').strip()
@@ -218,7 +220,7 @@ def read_fen_from_esp():
                 # error_msg = f"ESP{i} ({esp_ports[i]}) ERROR: {e}"
                 # print(error_msg)
                 raw_data.append(f"ERROR: {e}")
-        time.sleep(1)
+        time.sleep(0.2)
 
         return raw_data
 
@@ -398,8 +400,8 @@ def detect_move(prev_board, curr_board):
 
     while True:
         count_to_capture += 1
-        if count_to_capture <=8:
-            send_message(f"lift-up-for {8 - count_to_capture} to-eat-mode")
+        if count_to_capture <= 3:
+            send_message(f"lift-up-for {4 - count_to_capture} to-eat-mode")
         time.sleep(0.1)
         print(f"[DEBUG] source: {source}, destination: {destination}")
 
@@ -416,11 +418,11 @@ def detect_move(prev_board, curr_board):
 
         temp_current_board, fen_current = get_current_board_and_fen(prev_board)
 
-        # In the case of lifting a chess piece in 8 seconds (normal walking)
-        if count_to_capture <= 8 and destination is None:
-            print(f"[DEBUG] temp_current_board: {temp_current_board}, curr_board: {curr_board}")
+        # In the case of lifting a chess piece in 3 seconds (normal walking)
+        if count_to_capture <= 3 and destination is None:
+            # print(f"[DEBUG] temp_current_board: {temp_current_board}, curr_board: {curr_board}")
             if temp_current_board != curr_board: # Player placed the piece
-                print("[DEBUG] HEllo")
+                # print("[DEBUG] HEllo")
                 for i in range(8):
                     for j in range(8):
                         curr_piece = temp_current_board[i][j] # newest
@@ -434,7 +436,7 @@ def detect_move(prev_board, curr_board):
                         break
 
         # In case of entering "capturing" mode
-        elif count_to_capture > 8 and destination is None:
+        elif count_to_capture > 3 and destination is None:
             for i in range(8):
                 for j in range(8):
                     prev_piece = prev_board[i][j]
@@ -446,7 +448,7 @@ def detect_move(prev_board, curr_board):
                         elif curr_piece is not None and (prev_piece is None or prev_piece != curr_piece):
                             destination = (i, j)
 
-            # If there is no destination You must wait for the player to pick up the target to eat.
+            # If there is no destination must wait for the player to pick up the target to eat.
             if destination is None:
                 send_message(f"liftup-the-target {15 - count_to_capture}")
 
@@ -458,6 +460,7 @@ def detect_move(prev_board, curr_board):
                         send_message(f"putdownpiecereplaceontarget {5 - time_put_down}s left")
 
                         temp_current_board_2, _ = get_current_board_and_fen(prev_board)
+                        print(f"[DEBUG] {temp_current_board}\n {temp_current_board_2}")
                         if temp_current_board_2 != temp_current_board:  # players are placed
                             for i in range(8):
                                 for j in range(8):
@@ -494,18 +497,19 @@ def find_piece_moved(prev_board, curr_board, moved_piece):
     return None
 
 def update_board_state(board, source, destination):
-    piece = board[source[0]][source[1]]
-    board[destination[0]][destination[1]] = piece
-    board[source[0]][source[1]] = None
+    new_board = copy.deepcopy(board)
+    piece = new_board[source[0]][source[1]]
+    new_board[destination[0]][destination[1]] = piece
+    new_board[source[0]][source[1]] = None
 
         # --- Handle promotion ---
     dest_row = destination[0]
 
     if piece == 'p' and dest_row == 2:  # p move to row 3 rd (index 2)
-        board[dest_row][destination[1]] = 'm'  # promoted
+        new_board[dest_row][destination[1]] = 'm'  # promoted
     elif piece == 'P' and dest_row == 5:  # P move to row 6 th (index 5)
-        board[dest_row][destination[1]] = 'M'  # promoted
-    return board
+        new_board[dest_row][destination[1]] = 'M'  # promoted
+    return new_board
 
 def square_to_coords(square):
     file_to_col = {'a': 0, 'b': 1, 'c': 2, 'd': 3,'e': 4, 'f': 5, 'g': 6, 'h': 7}
@@ -523,38 +527,75 @@ def check_engine_move(board_state, bestmove):
         return False
     else:
         return True
-    
-def wait_for_fen_match(fen_update, board_state, bestmove):
-    print("Waiting for correct move on board...")
 
+def wait_for_fen_match(fen_update, board_state, bestmove, undo_board):
+    temp_board_state = board_state
     current_board, fen_current = get_current_board_and_fen(board_state)
+    print(f"Temp board state1: {board_to_binary(temp_board_state)}")
+    fleg_undo = 0
 
     while board_state == current_board:
         send_message(f"please lift a piece {bestmove}")
         time.sleep(0.5)
         current_board, fen_current = get_current_board_and_fen(board_state)
         continue
-
-    print(f"current_board54956: {current_board}, board_state789465: {board_state}")
+    print(f"Temp board state2: {board_to_binary(temp_board_state)}")
+    # print(f"current_board54956: {current_board}, board_state789465: {board_state}")
     source, destination = detect_move(board_state, current_board)
-    updated_board = update_board_state(board_state, source, destination)
-
+    
+    updated_board = update_board_state(temp_board_state, source, destination)
+    print(f"Temp board state3: {board_to_binary(temp_board_state)}")
     print(f"Board update4324: {updated_board}")
 
     # Convert board to FEN
     fen_from_sensor = update_board_to_fen(updated_board)
-
-    # print(f"[DEBUG] Current FEN: {fen_from_sensor}")
-    # print(f"[DEBUG] Expected FEN: {fen_update}")
+    
 
     while(True):
+        print(f"fen_from_sensor: {fen_from_sensor}, fen_update: {fen_update}")
         if fen_from_sensor == fen_update:
-            print("Correct move detected on board.")
-            return updated_board  # Send a new board back to the main() to use.
+            print("correct move detected on board.")
+            return updated_board, fleg_undo  # Send a new board back to the main() to use.
         else:
             print("Incorrect move. Waiting...")
-            time.sleep(1)
-            continue
+            print("Waiting player bring back the piece to board_state")
+            board_state = temp_board_state
+            print(f"Temp board state4: {board_to_binary(temp_board_state)}")
+            binary_curr_board = get_sensor_data()
+            binary_temp_board_state = board_to_binary(temp_board_state)
+            print(f"binary_board_state: {binary_temp_board_state}, binary_curr_board: {binary_curr_board}")
+            
+            while binary_temp_board_state != binary_curr_board:
+                if GPIO.input(RED_BUTTON_PIN) == GPIO.LOW:
+                    print("Red Button Pressed. Undo")
+                    send_message("undo!") 
+                    fleg_undo = 1
+                    time.sleep(0.3)  # Delay to prevent multiple key presses
+                    break
+                print(f"binary_board_state: {binary_temp_board_state}, binary_curr_board: {binary_curr_board}")
+                send_message("incorrect bring back the piece!")
+                time.sleep(0.5)
+                binary_curr_board = get_sensor_data()
+
+
+                continue
+
+            print(f"[DEBUG] fleg_undo: {fleg_undo}<<<<0<<<")
+            if fleg_undo == 0:
+                board_state = temp_board_state
+                current_board, fen_current = get_current_board_and_fen(board_state)
+                while board_state == current_board:
+                    send_message(f"Please move follow engine {bestmove}")
+                    time.sleep(0.5)
+                    current_board, fen_current = get_current_board_and_fen(board_state)
+                    continue
+                
+                source, destination = detect_move(board_state, current_board)
+                updated_board = update_board_state(board_state, source, destination)
+                fen_from_sensor = update_board_to_fen(updated_board)
+            else:
+                return undo_board, fleg_undo
+
             
 
 def get_current_board_and_fen(board_state):
@@ -564,6 +605,7 @@ def get_current_board_and_fen(board_state):
     return board, board_to_fen(board)
 
 def handle_player_move(previous_board):
+    print(f"[DEBUG] player fen {previous_board}>>>>>>>>>")
     while True:
         current_board, fen_current = get_current_board_and_fen(previous_board)
         if fen_current.strip().split(" ")[0] == board_to_fen(previous_board).strip().split(" ")[0]:
@@ -581,11 +623,11 @@ def handle_player_move(previous_board):
         
 
         # Detect move
-        capture_pos, captured_piece = detect_capture(previous_board, current_board)
-        if capture_pos:
-            print(f"White captured piece at {capture_pos}: {captured_piece}")
-        else:
-            print("No capture detected.")
+        # capture_pos, captured_piece = detect_capture(previous_board, current_board)
+        # if capture_pos:
+        #     print(f"White captured piece at {capture_pos}: {captured_piece}")
+        # else:
+        #     print("No capture detected.")
 
         return updated_board, fen_current
 
@@ -602,7 +644,7 @@ def detect_capture(previous_board, current_board):
 def is_opponent(piece1, piece2):
     return (piece1.isupper() and piece2.islower()) or (piece1.islower() and piece2.isupper())
 
-def handle_engine_move(fen_prefix, board_state, fullmove_count, halfmove_count, skill_level):
+def handle_engine_move(fen_prefix, board_state, fullmove_count, halfmove_count, skill_level, undo_board):
     player_turn = 'b'
     fen_suffix = f"{player_turn} - - {halfmove_count} {fullmove_count} --skill {skill_level}"
     fen_full = f"{fen_prefix} {fen_suffix}"
@@ -613,17 +655,19 @@ def handle_engine_move(fen_prefix, board_state, fullmove_count, halfmove_count, 
     print(f"Engine's best move: {best_move}")
     msg = f"next move is:        {best_move}"
     send_message(msg)
-    board_after_engine_move = wait_for_fen_match(fen_expected, board_state, best_move)
+    
+    board_after_engine_move, fleg_undo = wait_for_fen_match(fen_expected, board_state, best_move, undo_board)
     send_message("black move!")
 
     # detect capture
-    capture_pos, captured_piece = detect_capture(board_state, board_after_engine_move)
-    if capture_pos:
-        print(f"Engine captured piece at {capture_pos}: {captured_piece}")
-    else:
-        print("Engine moved without capturing.")
+    # capture_pos, captured_piece = detect_capture(board_state, board_after_engine_move)
+    # if capture_pos:
+    #     print(f"Engine captured piece at {capture_pos}: {captured_piece}")
+    # else:
+    #     print("Engine moved without capturing.")
+    print(f"[DEBUG] undo_board: {board_after_engine_move}<<<<<<<<")
 
-    return board_after_engine_move, update_board_to_fen(board_after_engine_move)
+    return board_after_engine_move, update_board_to_fen(board_after_engine_move), fleg_undo
 
 def board_to_binary(board):
     """Convert a normal board to binary (0 = checkers, 1 = empty)."""
@@ -711,6 +755,7 @@ def main():
                     state = 2
                     time.sleep(0.5)  # Delay to prevent multiple key presses
                     break
+                
                 time.sleep(0.1)  # Check every 100ms to save CPU.
 
         elif (state == 2): # 1 is state that player settel the chess was correctly
@@ -719,13 +764,15 @@ def main():
             player_turn_count_halfMove = 0
             temp_fen = get_fen()
             previous_board = fen_to_board(temp_fen)
+            undo_board = fen_to_board(temp_fen)
 
             while(True):
-                print(f"Engine's Level {engine_level}")
+                print(f"[DEBUG] 00undo_board: {undo_board}<<<<<<<<00")
 
                 # --- Handle player move (White) ---
                 updated_board, fen_prefix = handle_player_move(previous_board)
                 previous_board = updated_board
+                # print(f"[DEBUG] player fen {previous_board}")
 
                 #----------------- undo process ---------------------------
                 # previous_board_before_move = previous_board.copy()
@@ -759,14 +806,25 @@ def main():
                     break
 
                 # --- Handle engine move (Black) ---
-                updated_board, fen_current = handle_engine_move(
+                updated_board, fen_current, fleg_undo = handle_engine_move(
                     fen_prefix, previous_board, 
                     player_turn_count_fullMove, 
                     player_turn_count_halfMove, 
-                    engine_level
+                    engine_level,
+                    undo_board
                     )
-                player_turn_count_fullMove += 1
-                previous_board = updated_board
+                
+                if fleg_undo == 0:
+                    player_turn_count_fullMove += 1
+                    previous_board = updated_board
+                    undo_board = updated_board
+                else:
+                    while fen_to_board(get_fen()) != undo_board:
+                        send_message("undo! bring back piece")
+                        time.sleep(0.5)
+                    
+                    fleg_undo = 0
+                    previous_board = undo_board
 
                 if is_king_missing(fen_prefix): # check king's black 
                     print("game over!")
